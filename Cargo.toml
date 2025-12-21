@@ -1,0 +1,7 @@
+[workspace]
+members = [
+  "console_core",
+  "console_cli",
+  "console_gui"
+]
+resolver = "2"

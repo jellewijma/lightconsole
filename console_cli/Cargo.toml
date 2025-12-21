@@ -1,0 +1,8 @@
+[package]
+name = "console_cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+console_core = { path = "../console_core" }
+anyhow = "1"

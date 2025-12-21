@@ -1,0 +1,9 @@
+[package]
+name = "console_gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+console_core = { path = "../console_core" }
+eframe = "0.29"
