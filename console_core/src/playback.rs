@@ -349,7 +349,7 @@ fn interpolate_maps(
     out
 }
 
-fn render_fixture_values(
+pub(crate) fn render_fixture_values(
     show: &Show,
     fixture_id: u32,
     vals: &FixtureValues,

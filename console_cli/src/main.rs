@@ -1,5 +1,6 @@
 use anyhow::Context;
 use std::env;
+use std::time::{Duration, Instant};
 
 fn print_help() {
     println!(
@@ -63,6 +64,12 @@ fn snapshot_fixture_values(
 fn repl(show_path: &str) -> anyhow::Result<()> {
     let show = console_core::Show::load_json_file(show_path)?;
     let mut rt = console_core::Runtime::new(show);
+    let mut active_pb: char = 'a';
+
+    let mut running = false;
+    let mut last_tick = Instant::now();
+    let mut last_print = Instant::now();
+    let print_every = Duration::from_millis(200); // adjust if you want
 
     rt.show
         .cue_lists
@@ -74,6 +81,25 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
 
     let mut rec_fade_ms: u32 = 1000;
     let mut rec_delay_ms: u32 = 0;
+
+    fn pb_mut<'a>(
+        rt: &'a mut console_core::Runtime,
+        active: char,
+    ) -> &'a mut console_core::Playback {
+        if active == 'b' {
+            &mut rt.playback_b
+        } else {
+            &mut rt.playback_a
+        }
+    }
+
+    fn pb_ref<'a>(rt: &'a console_core::Runtime, active: char) -> &'a console_core::Playback {
+        if active == 'b' {
+            &rt.playback_b
+        } else {
+            &rt.playback_a
+        }
+    }
 
     loop {
         print!("lc> ");
@@ -92,6 +118,31 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         let cmd = parts[0].to_lowercase();
 
+        if running {
+            let now = Instant::now();
+            let dt = now.duration_since(last_tick);
+            last_tick = now;
+
+            let ms = (dt.as_secs_f64() * 1000.0).round() as u32;
+            if ms > 0 {
+                rt.tick(ms.min(100)); // clamp so pauses don't jump too far
+            }
+
+            if now.duration_since(last_print) >= print_every {
+                last_print = now;
+
+                let live = rt.render()?;
+                let nz = live.nonzero();
+
+                println!(
+                    "A: {:?} | B: {:?} | nz={}",
+                    rt.playback_a.current,
+                    rt.playback_b.current,
+                    nz.len()
+                );
+            }
+        }
+
         match cmd.as_str() {
             "help" => {
                 println!(
@@ -101,7 +152,6 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                         at <0..100>
                         rgb <0..255> <0..255> <0..255>
                         show
-                        out
                         clear        (clears selection + values)
                         clearvals    (keeps selection, clears values)
                         clearprog    (clears programmer)
@@ -119,6 +169,10 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                         goto <cue_number>
                         go
                         state
+                        out
+                        pb a|b
+                        run
+                        stop
                         save
                         quit
                         "#
@@ -183,8 +237,12 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 let nz = live.nonzero();
 
                 println!(
-                    "Playback cue: {:?} mode: {:?} | Selected: {:?}",
-                    rt.playback.current, rt.playback.mode, rt.programmer.selected
+                    "A cue: {:?} mode: {:?} | B cue: {:?} mode: {:?} | Selected: {:?}",
+                    rt.playback_a.current,
+                    rt.playback_a.mode,
+                    rt.playback_b.current,
+                    rt.playback_b.mode,
+                    rt.programmer.selected
                 );
 
                 if nz.is_empty() {
@@ -285,7 +343,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                             .map(|fid| {
                                 let snap = snapshot_fixture_values(
                                     &rt.show,
-                                    &rt.playback,
+                                    pb_ref(&rt, active_pb),
                                     &rt.programmer,
                                     fid,
                                 )?;
@@ -351,7 +409,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                                 .map(|fid| {
                                     let snap = snapshot_fixture_values(
                                         &rt.show,
-                                        &rt.playback,
+                                        pb_ref(&rt, active_pb),
                                         &rt.programmer,
                                         fid,
                                     )?;
@@ -462,13 +520,15 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     println!("(no cues yet)");
                     continue;
                 }
-                println!("Cuelist: main | current: {:?}", rt.playback.current);
+                println!(
+                    "Cuelist: main | A current: {:?} | B current: {:?} | active: {}",
+                    rt.playback_a.current,
+                    rt.playback_b.current,
+                    active_pb.to_ascii_uppercase()
+                );
                 for (&num, cue) in &cl.cues {
-                    let mark = if Some(num) == rt.playback.current {
-                        " <=="
-                    } else {
-                        ""
-                    };
+                    let cur = pb_ref(&rt, active_pb).current;
+                    let mark = if Some(num) == cur { " <==" } else { "" };
                     println!(
                         "  {} | {} | fade={}ms delay={}ms block={}{}",
                         num, cue.label, cue.fade_ms, cue.delay_ms, cue.block, mark
@@ -482,13 +542,36 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 let num: u32 = parts[1].parse()?;
-                rt.playback.goto(&rt.show, num)?;
-                println!("Playback now at cue {:?}", rt.playback.current);
+
+                let cur = match active_pb {
+                    'b' => {
+                        rt.playback_b.goto(&rt.show, num)?;
+                        rt.playback_b.current
+                    }
+                    _ => {
+                        rt.playback_a.goto(&rt.show, num)?;
+                        rt.playback_a.current
+                    }
+                };
+
+                println!(
+                    "Playback {} now at cue {:?}",
+                    active_pb.to_ascii_uppercase(),
+                    cur
+                );
             }
 
             "go" => {
-                let cur = rt.playback.go(&rt.show)?;
-                println!("Playback now at cue {:?}", cur);
+                let cur = match active_pb {
+                    'b' => rt.playback_b.go(&rt.show)?,
+                    _ => rt.playback_a.go(&rt.show)?,
+                };
+
+                println!(
+                    "Playback {} now at cue {:?}",
+                    active_pb.to_ascii_uppercase(),
+                    cur
+                );
             }
 
             "tick" => {
@@ -520,15 +603,20 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     println!("Usage: pbmode tracking|cueonly");
                     continue;
                 }
+                let pb = pb_mut(&mut rt, active_pb);
                 match parts[1].to_lowercase().as_str() {
-                    "tracking" => rt.playback.mode = console_core::PlaybackMode::Tracking,
-                    "cueonly" => rt.playback.mode = console_core::PlaybackMode::CueOnly,
+                    "tracking" => pb.mode = console_core::PlaybackMode::Tracking,
+                    "cueonly" => pb.mode = console_core::PlaybackMode::CueOnly,
                     _ => {
                         println!("Usage: pbmode tracking|cueonly");
                         continue;
                     }
                 }
-                println!("Playback mode set to {:?}", rt.playback.mode);
+                println!(
+                    "Playback {} mode set to {:?}",
+                    active_pb.to_ascii_uppercase(),
+                    pb.mode
+                );
             }
 
             "block" | "unblock" => {
@@ -563,15 +651,18 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
             }
             "state" => {
-                let st = rt.playback.state_map(&rt.show)?;
+                let pb = pb_ref(&rt, active_pb);
+                let st = pb.state_map(&rt.show)?;
                 if st.is_empty() {
                     println!("(empty state)");
                     continue;
                 }
 
                 println!(
-                    "Playback cue: {:?} mode: {:?}",
-                    rt.playback.current, rt.playback.mode
+                    "Playback {} cue: {:?} mode: {:?}",
+                    active_pb.to_ascii_uppercase(),
+                    pb.current,
+                    pb.mode
                 );
                 for (fid, v) in st {
                     println!(
@@ -581,7 +672,23 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
             }
 
-            "trans" => match rt.playback.transition_info() {
+            "pb" => {
+                if parts.len() != 2 {
+                    println!("Usage: pb a|b");
+                    continue;
+                }
+                match parts[1].to_lowercase().as_str() {
+                    "a" => active_pb = 'a',
+                    "b" => active_pb = 'b',
+                    _ => {
+                        println!("Usage: pb a|b");
+                        continue;
+                    }
+                }
+                println!("Active playback = {}", active_pb.to_ascii_uppercase());
+            }
+
+            "trans" => match pb_ref(&rt, active_pb).transition_info() {
                 Some((elapsed, delay, fade)) => {
                     println!("Transition: elapsed={elapsed}ms delay={delay}ms fade={fade}ms");
                 }
@@ -608,6 +715,18 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 rt.programmer.b = Some(parts[1].parse()?);
+            }
+
+            "run" => {
+                running = true;
+                last_tick = Instant::now();
+                last_print = Instant::now();
+                println!("Run mode: ON (tick is automatic). Type 'stop' to stop.");
+            }
+
+            "stop" => {
+                running = false;
+                println!("Run mode: OFF");
             }
 
             _ => println!("Unknown command. Type 'help'."),
