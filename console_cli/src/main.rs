@@ -259,6 +259,11 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             "clear" => rt.programmer.clear_all(),
             "clearvals" => rt.programmer.clear_values(),
             "clearprog" => rt.programmer.clear_all(),
+            "clearall" => {
+                rt.programmer.clear_all();
+                rt.programmer.selected.clear();
+                println!("Cleared programmer + selection.");
+            }
 
             "save" => {
                 rt.show.save_json_file(show_path)?;
@@ -676,7 +681,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 println!(
                     "Playback {} mode set to {:?}",
                     active_pb.to_ascii_uppercase(),
-                    pb.mode
+                    pb_ref(&rt, active_pb).mode
                 );
             }
 
@@ -782,7 +787,19 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 running = true;
                 last_tick = Instant::now();
                 last_print = Instant::now();
-                println!("Run mode: ON (tick is automatic). Type 'stop' to stop.");
+
+                let live = rt.render()?;
+                let nz = live.nonzero();
+
+                println!(
+                    "A:{:?}({:?}) B:{:?}({:?}) active:{} nz={}",
+                    rt.playback_a.current,
+                    rt.playback_a.mode,
+                    rt.playback_b.current,
+                    rt.playback_b.mode,
+                    active_pb.to_ascii_uppercase(),
+                    nz.len()
+                );
             }
 
             "stop" => {
