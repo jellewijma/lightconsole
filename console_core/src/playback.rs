@@ -36,6 +36,13 @@ impl Playback {
         }
     }
 
+    pub fn on_cue_deleted(&mut self, cue: u32) {
+        if self.current == Some(cue) {
+            self.current = None;
+            self.transition = None;
+        }
+    }
+
     fn state_map_at(
         &self,
         show: &Show,

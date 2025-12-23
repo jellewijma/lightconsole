@@ -84,15 +84,6 @@
         "g": null,
         "b": null
       }
-    },
-    "red": {
-      "kind": "Color",
-      "values": {
-        "intensity": null,
-        "r": 255,
-        "g": 0,
-        "b": 0
-      }
     }
   },
   "cue_lists": {
@@ -188,21 +179,6 @@
             }
           }
         },
-        "51": {
-          "number": 51,
-          "label": "PureRed",
-          "block": false,
-          "fade_ms": 2000,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": 0,
-              "r": 255,
-              "g": 0,
-              "b": 0
-            }
-          }
-        },
         "52": {
           "number": 52,
           "label": "PureBlue",
@@ -242,10 +218,5 @@
       }
     }
   },
-  "groups": {
-    "front": [
-      1,
-      2
-    ]
-  }
+  "groups": {}
 }

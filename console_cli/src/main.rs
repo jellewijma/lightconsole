@@ -491,24 +491,69 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             }
 
             "delete" => {
-                // delete cue <number>
-                if parts.len() != 3 || !parts[1].eq_ignore_ascii_case("cue") {
-                    println!("Usage: delete cue <number>");
+                if parts.len() < 3 {
+                    println!(
+                        "Usage: delete cue <num> | delete group <name...> | delete palette <name...>"
+                    );
                     continue;
                 }
-                let num: u32 = parts[2].parse()?;
 
-                let cl = rt
-                    .show
-                    .cue_lists
-                    .get_mut("main")
-                    .expect("main cuelist exists");
+                match parts[1].to_lowercase().as_str() {
+                    "cue" => {
+                        if parts.len() != 3 {
+                            println!("Usage: delete cue <num>");
+                            continue;
+                        }
+                        let num: u32 = parts[2].parse()?;
 
-                if cl.cues.remove(&num).is_some() {
-                    rt.show.save_json_file(show_path)?;
-                    println!("Deleted cue {num} and saved.");
-                } else {
-                    println!("Cue {num} not found.");
+                        let cl = rt
+                            .show
+                            .cue_lists
+                            .get_mut("main")
+                            .expect("main cuelist exists");
+
+                        if cl.cues.remove(&num).is_none() {
+                            println!("Unknown cue {num}");
+                            continue;
+                        }
+
+                        // Guard rail: if A/B were on this cue, clear them
+                        rt.playback_a.on_cue_deleted(num);
+                        rt.playback_b.on_cue_deleted(num);
+
+                        rt.show.save_json_file(show_path)?;
+                        println!("Deleted cue {num} and saved.");
+                    }
+
+                    "group" => {
+                        let name = parts[2..].join(" ");
+                        if rt.show.groups.remove(&name).is_none() {
+                            println!("Unknown group '{name}'");
+                            continue;
+                        }
+                        rt.show.save_json_file(show_path)?;
+                        println!("Deleted group '{name}' and saved.");
+                    }
+
+                    "palette" => {
+                        let name = parts[2..].join(" ");
+
+                        // Most likely your show stores palettes in a map keyed by name.
+                        // If your field name differs, use `rg "palettes"` in console_core to confirm.
+                        if rt.show.palettes.remove(&name).is_none() {
+                            println!("Unknown palette '{name}'");
+                            continue;
+                        }
+
+                        rt.show.save_json_file(show_path)?;
+                        println!("Deleted palette '{name}' and saved.");
+                    }
+
+                    _ => {
+                        println!(
+                            "Usage: delete cue <num> | delete group <name...> | delete palette <name...>"
+                        );
+                    }
                 }
             }
 
