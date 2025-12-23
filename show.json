@@ -217,6 +217,27 @@
               "b": 255
             }
           }
+        },
+        "200": {
+          "number": 200,
+          "label": "list1",
+          "block": false,
+          "fade_ms": 1000,
+          "delay_ms": 0,
+          "changes": {
+            "1": {
+              "intensity": null,
+              "r": 255,
+              "g": 0,
+              "b": 0
+            },
+            "2": {
+              "intensity": null,
+              "r": 255,
+              "g": 0,
+              "b": 0
+            }
+          }
         }
       }
     }

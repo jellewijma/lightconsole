@@ -5,19 +5,19 @@ fn print_help() {
     println!(
         r#"LightConsole CLI
 
-Commands:
-  new <show_name>
-  add-fixture <show.json> <fixture_id> <name> <fixture_type> <universe> <address>
-  list <show.json>
-  save-default <show.json>
-  load <show.json>
+            Commands:
+            new <show_name>
+            add-fixture <show.json> <fixture_id> <name> <fixture_type> <universe> <address>
+            list <show.json>
+            save-default <show.json>
+            load <show.json>
 
-Examples:
-  cargo run -p console_cli -- new "My Show"
-  cargo run -p console_cli -- save-default show.json
-  cargo run -p console_cli -- add-fixture show.json 1 "PAR 1" rgb_par_3ch 1 1
-  cargo run -p console_cli -- list show.json
-"#
+            Examples:
+            cargo run -p console_cli -- new "My Show"
+            cargo run -p console_cli -- save-default show.json
+            cargo run -p console_cli -- add-fixture show.json 1 "PAR 1" rgb_par_3ch 1 1
+            cargo run -p console_cli -- list show.json
+        "#
     );
 }
 
@@ -61,17 +61,19 @@ fn snapshot_fixture_values(
 }
 
 fn repl(show_path: &str) -> anyhow::Result<()> {
-    let mut show = console_core::Show::load_json_file(show_path)?;
-    show.cue_lists
+    let show = console_core::Show::load_json_file(show_path)?;
+    let mut rt = console_core::Runtime::new(show);
+
+    rt.show
+        .cue_lists
         .entry("main".to_string())
         .or_insert_with(console_core::CueList::default);
-    let mut programmer = console_core::Programmer::new();
-    let mut playback = console_core::Playback::new("main");
+
+    println!("Loaded show: {}", rt.show.name);
+    println!("Type 'help' for commands. 'quit' to exit.");
+
     let mut rec_fade_ms: u32 = 1000;
     let mut rec_delay_ms: u32 = 0;
-
-    println!("Loaded show: {}", show.name);
-    println!("Type 'help' for commands. 'quit' to exit.");
 
     loop {
         print!("lc> ");
@@ -126,7 +128,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
 
             "list" => {
                 println!("Fixtures:");
-                for f in show.patch.list_fixtures() {
+                for f in rt.show.patch.list_fixtures() {
                     println!(
                         "  #{:>3} | {:<10} | type {:<12} | U{} @ {}",
                         f.fixture_id, f.name, f.fixture_type, f.universe, f.address
@@ -137,11 +139,11 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             "select" => {
                 if parts.len() == 2 {
                     let id: u32 = parts[1].parse()?;
-                    programmer.select_one(id);
+                    rt.programmer.select_one(id);
                 } else if parts.len() == 4 && parts[2].eq_ignore_ascii_case("thru") {
                     let a: u32 = parts[1].parse()?;
                     let b: u32 = parts[3].parse()?;
-                    programmer.select_range(a, b);
+                    rt.programmer.select_range(a, b);
                 } else {
                     println!("Usage: select <id>  OR  select <a> thru <b>");
                 }
@@ -153,7 +155,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 let pct: u8 = parts[1].parse()?;
-                programmer.set_intensity_percent(pct);
+                rt.programmer.set_intensity_percent(pct);
             }
 
             "rgb" | "color" => {
@@ -164,27 +166,25 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 let r: u8 = parts[1].parse()?;
                 let g: u8 = parts[2].parse()?;
                 let b: u8 = parts[3].parse()?;
-                programmer.set_rgb(r, g, b);
+                rt.programmer.set_rgb(r, g, b);
             }
 
             "show" => {
-                println!("Selected: {:?}", programmer.selected);
+                println!("Selected: {:?}", rt.programmer.selected);
                 println!(
                     "Values: intensity={:?} rgb={:?}",
-                    programmer.intensity,
-                    programmer.r.zip(programmer.g).zip(programmer.b)
+                    rt.programmer.intensity,
+                    rt.programmer.r.zip(rt.programmer.g).zip(rt.programmer.b)
                 );
             }
 
             "out" => {
-                let mut live = playback.render(&show)?;
-                let prog = programmer.render(&show)?;
-                live.overlay(&prog); // programmer on top
-
+                let live = rt.render()?;
                 let nz = live.nonzero();
+
                 println!(
                     "Playback cue: {:?} mode: {:?} | Selected: {:?}",
-                    playback.current, playback.mode, programmer.selected
+                    rt.playback.current, rt.playback.mode, rt.programmer.selected
                 );
 
                 if nz.is_empty() {
@@ -198,22 +198,22 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
             }
 
-            "clear" => programmer.clear_all(),
-            "clearvals" => programmer.clear_values(),
-            "clearprog" => programmer.clear_all(),
+            "clear" => rt.programmer.clear_all(),
+            "clearvals" => rt.programmer.clear_values(),
+            "clearprog" => rt.programmer.clear_all(),
 
             "save" => {
-                show.save_json_file(show_path)?;
+                rt.show.save_json_file(show_path)?;
                 println!("Saved showfile: {}", show_path);
             }
 
             "palettes" => {
-                if show.palettes.is_empty() {
+                if rt.show.palettes.is_empty() {
                     println!("(no palettes yet)");
                     continue;
                 }
                 println!("Palettes:");
-                for (name, pal) in &show.palettes {
+                for (name, pal) in &rt.show.palettes {
                     match pal.kind {
                         console_core::PaletteKind::Intensity => {
                             let v = pal.values.intensity.unwrap_or(0);
@@ -251,7 +251,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                         format!("Cue {num}")
                     };
 
-                    if programmer.selected.is_empty() {
+                    if rt.programmer.selected.is_empty() {
                         println!("Nothing selected. Use: select ...");
                         continue;
                     }
@@ -261,10 +261,10 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     if mode.eq_ignore_ascii_case("track") {
                         // Track: record programmer deltas only
                         let delta = console_core::FixtureValues {
-                            intensity: programmer.intensity,
-                            r: programmer.r,
-                            g: programmer.g,
-                            b: programmer.b,
+                            intensity: rt.programmer.intensity,
+                            r: rt.programmer.r,
+                            g: rt.programmer.g,
+                            b: rt.programmer.b,
                         };
 
                         if delta.is_all_none() {
@@ -272,18 +272,23 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                             continue;
                         }
 
-                        for &fid in &programmer.selected {
+                        for &fid in &rt.programmer.selected {
                             changes.insert(fid, delta.clone());
                         }
                     } else {
                         // 1) compute snaps FIRST (immutable borrows only)
-                        let snaps: Vec<(u32, console_core::FixtureValues)> = programmer
+                        let snaps: Vec<(u32, console_core::FixtureValues)> = rt
+                            .programmer
                             .selected
                             .iter()
                             .copied()
                             .map(|fid| {
-                                let snap =
-                                    snapshot_fixture_values(&show, &playback, &programmer, fid)?;
+                                let snap = snapshot_fixture_values(
+                                    &rt.show,
+                                    &rt.playback,
+                                    &rt.programmer,
+                                    fid,
+                                )?;
                                 Ok((fid, snap))
                             })
                             .collect::<anyhow::Result<_>>()?;
@@ -303,10 +308,14 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                         changes,
                     };
 
-                    let cl = show.cue_lists.get_mut("main").expect("main cuelist exists");
+                    let cl = rt
+                        .show
+                        .cue_lists
+                        .get_mut("main")
+                        .expect("main cuelist exists");
                     cl.cues.insert(num, cue);
 
-                    show.save_json_file(show_path)?;
+                    rt.show.save_json_file(show_path)?;
                     println!("Recorded cue {num} ({mode}) into cuelist 'main' and saved.");
                     continue;
                 }
@@ -326,38 +335,41 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 let num: u32 = parts[2].parse()?;
                 let mode = if parts.len() >= 4 { parts[3] } else { "track" };
 
-                if programmer.selected.is_empty() {
+                if rt.programmer.selected.is_empty() {
                     println!("Nothing selected. Use: select ...");
                     continue;
                 }
 
                 // ---- Phase 1: compute what we want to apply (NO mutable borrows of show) ----
-                let snaps: Option<Vec<(u32, console_core::FixtureValues)>> = if mode
-                    .eq_ignore_ascii_case("only")
-                {
-                    Some(
-                        programmer
-                            .selected
-                            .iter()
-                            .copied()
-                            .map(|fid| {
-                                let snap =
-                                    snapshot_fixture_values(&show, &playback, &programmer, fid)?;
-                                Ok((fid, snap))
-                            })
-                            .collect::<anyhow::Result<_>>()?,
-                    )
-                } else {
-                    None
-                };
+                let snaps: Option<Vec<(u32, console_core::FixtureValues)>> =
+                    if mode.eq_ignore_ascii_case("only") {
+                        Some(
+                            rt.programmer
+                                .selected
+                                .iter()
+                                .copied()
+                                .map(|fid| {
+                                    let snap = snapshot_fixture_values(
+                                        &rt.show,
+                                        &rt.playback,
+                                        &rt.programmer,
+                                        fid,
+                                    )?;
+                                    Ok((fid, snap))
+                                })
+                                .collect::<anyhow::Result<_>>()?,
+                        )
+                    } else {
+                        None
+                    };
 
                 let delta: Option<console_core::FixtureValues> =
                     if mode.eq_ignore_ascii_case("track") {
                         let d = console_core::FixtureValues {
-                            intensity: programmer.intensity,
-                            r: programmer.r,
-                            g: programmer.g,
-                            b: programmer.b,
+                            intensity: rt.programmer.intensity,
+                            r: rt.programmer.r,
+                            g: rt.programmer.g,
+                            b: rt.programmer.b,
                         };
                         if d.is_all_none() {
                             println!("No values in programmer to update. Use: at / rgb / r/g/b");
@@ -374,7 +386,11 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
 
                 // ---- Phase 2: mutate the cue (NOW we can borrow show mutably) ----
-                let cl = show.cue_lists.get_mut("main").expect("main cuelist exists");
+                let cl = rt
+                    .show
+                    .cue_lists
+                    .get_mut("main")
+                    .expect("main cuelist exists");
 
                 let cue = match cl.cues.get_mut(&num) {
                     Some(c) => c,
@@ -385,7 +401,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 };
 
                 if let Some(d) = delta {
-                    for &fid in &programmer.selected {
+                    for &fid in &rt.programmer.selected {
                         cue.changes.insert(fid, d.clone());
                     }
                 }
@@ -396,7 +412,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     }
                 }
 
-                show.save_json_file(show_path)?;
+                rt.show.save_json_file(show_path)?;
                 println!("Updated cue {num} ({mode}) for selected fixtures and saved.");
             }
 
@@ -408,10 +424,14 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
                 let num: u32 = parts[2].parse()?;
 
-                let cl = show.cue_lists.get_mut("main").expect("main cuelist exists");
+                let cl = rt
+                    .show
+                    .cue_lists
+                    .get_mut("main")
+                    .expect("main cuelist exists");
 
                 if cl.cues.remove(&num).is_some() {
-                    show.save_json_file(show_path)?;
+                    rt.show.save_json_file(show_path)?;
                     println!("Deleted cue {num} and saved.");
                 } else {
                     println!("Cue {num} not found.");
@@ -425,26 +445,26 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 let name = parts[2];
-                let pal = match show.palettes.get(name) {
+                let pal = match rt.show.palettes.get(name) {
                     Some(p) => p,
                     None => {
                         println!("Unknown palette '{name}'. Type: palettes");
                         continue;
                     }
                 };
-                programmer.apply_palette(pal);
+                rt.programmer.apply_palette(pal);
                 println!("Applied palette '{name}' to programmer.");
             }
 
             "cues" => {
-                let cl = show.cue_lists.get("main").unwrap();
+                let cl = rt.show.cue_lists.get("main").unwrap();
                 if cl.cues.is_empty() {
                     println!("(no cues yet)");
                     continue;
                 }
-                println!("Cuelist: main | current: {:?}", playback.current);
+                println!("Cuelist: main | current: {:?}", rt.playback.current);
                 for (&num, cue) in &cl.cues {
-                    let mark = if Some(num) == playback.current {
+                    let mark = if Some(num) == rt.playback.current {
                         " <=="
                     } else {
                         ""
@@ -462,12 +482,12 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 let num: u32 = parts[1].parse()?;
-                playback.goto(&show, num)?;
-                println!("Playback now at cue {:?}", playback.current);
+                rt.playback.goto(&rt.show, num)?;
+                println!("Playback now at cue {:?}", rt.playback.current);
             }
 
             "go" => {
-                let cur = playback.go(&show)?;
+                let cur = rt.playback.go(&rt.show)?;
                 println!("Playback now at cue {:?}", cur);
             }
 
@@ -477,7 +497,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 let ms: u32 = parts[1].parse()?;
-                playback.tick(ms);
+                rt.tick(ms);
                 println!("Ticked {ms}ms");
             }
 
@@ -501,14 +521,14 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     continue;
                 }
                 match parts[1].to_lowercase().as_str() {
-                    "tracking" => playback.mode = console_core::PlaybackMode::Tracking,
-                    "cueonly" => playback.mode = console_core::PlaybackMode::CueOnly,
+                    "tracking" => rt.playback.mode = console_core::PlaybackMode::Tracking,
+                    "cueonly" => rt.playback.mode = console_core::PlaybackMode::CueOnly,
                     _ => {
                         println!("Usage: pbmode tracking|cueonly");
                         continue;
                     }
                 }
-                println!("Playback mode set to {:?}", playback.mode);
+                println!("Playback mode set to {:?}", rt.playback.mode);
             }
 
             "block" | "unblock" => {
@@ -521,7 +541,11 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 // Do the mutation inside a small scope so the mutable borrow ends
                 let new_value = cmd == "block";
                 let result: Option<bool> = {
-                    let cl = show.cue_lists.get_mut("main").expect("main cuelist exists");
+                    let cl = rt
+                        .show
+                        .cue_lists
+                        .get_mut("main")
+                        .expect("main cuelist exists");
                     match cl.cues.get_mut(&num) {
                         Some(cue) => {
                             cue.block = new_value;
@@ -532,14 +556,14 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 };
                 match result {
                     Some(v) => {
-                        show.save_json_file(show_path)?;
+                        rt.show.save_json_file(show_path)?;
                         println!("Cue {num} block = {v}");
                     }
                     None => println!("Cue {num} not found. Type: cues"),
                 }
             }
             "state" => {
-                let st = playback.state_map(&show)?;
+                let st = rt.playback.state_map(&rt.show)?;
                 if st.is_empty() {
                     println!("(empty state)");
                     continue;
@@ -547,7 +571,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
 
                 println!(
                     "Playback cue: {:?} mode: {:?}",
-                    playback.current, playback.mode
+                    rt.playback.current, rt.playback.mode
                 );
                 for (fid, v) in st {
                     println!(
@@ -557,7 +581,7 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                 }
             }
 
-            "trans" => match playback.transition_info() {
+            "trans" => match rt.playback.transition_info() {
                 Some((elapsed, delay, fade)) => {
                     println!("Transition: elapsed={elapsed}ms delay={delay}ms fade={fade}ms");
                 }
@@ -569,21 +593,21 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
                     println!("Usage: r <0..255>");
                     continue;
                 }
-                programmer.r = Some(parts[1].parse()?);
+                rt.programmer.r = Some(parts[1].parse()?);
             }
             "g" => {
                 if parts.len() != 2 {
                     println!("Usage: g <0..255>");
                     continue;
                 }
-                programmer.g = Some(parts[1].parse()?);
+                rt.programmer.g = Some(parts[1].parse()?);
             }
             "b" => {
                 if parts.len() != 2 {
                     println!("Usage: b <0..255>");
                     continue;
                 }
-                programmer.b = Some(parts[1].parse()?);
+                rt.programmer.b = Some(parts[1].parse()?);
             }
 
             _ => println!("Unknown command. Type 'help'."),

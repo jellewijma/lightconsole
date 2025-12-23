@@ -8,11 +8,13 @@ pub mod cues;
 pub mod engine;
 pub mod palette;
 pub mod playback;
+mod runtime;
 
 pub use cues::{Cue, CueList, FixtureValues};
 pub use engine::{LiveState, Programmer};
 pub use palette::{Palette, PaletteKind, PaletteValues};
 pub use playback::{Playback, PlaybackMode};
+pub use runtime::Runtime;
 
 pub fn version() -> &'static str {
     "0.1.0"

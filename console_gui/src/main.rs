@@ -69,7 +69,7 @@ impl SnapshotApp {
     }
 
     fn safe_tick(&mut self, ms: u32) {
-        self.playback.tick(ms);
+        self.rt.tick(ms);
     }
 
     fn live(&mut self) -> LiveState {
