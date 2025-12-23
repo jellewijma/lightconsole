@@ -289,6 +289,22 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             }
 
             "record" => {
+                // record group <name>
+                if parts.len() == 3 && parts[1].eq_ignore_ascii_case("group") {
+                    let name = parts[2].to_string();
+
+                    if rt.programmer.selected.is_empty() {
+                        println!("No fixtures selected.");
+                        continue;
+                    }
+
+                    rt.show
+                        .groups
+                        .insert(name.clone(), rt.programmer.selected.clone());
+                    rt.show.save_json_file(show_path)?;
+                    println!("Recorded group '{name}' and saved.");
+                    continue;
+                }
                 // record cue <number> <label...> [track|only]
                 if parts.len() >= 3 && parts[1].eq_ignore_ascii_case("cue") {
                     let num: u32 = parts[2].parse()?;
@@ -727,6 +743,38 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             "stop" => {
                 running = false;
                 println!("Run mode: OFF");
+            }
+
+            "groups" => {
+                if rt.show.groups.is_empty() {
+                    println!("(no groups)");
+                    continue;
+                }
+                println!("Groups:");
+                for (name, set) in &rt.show.groups {
+                    let ids = set
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    println!("  {name} | {ids}");
+                }
+            }
+
+            "group" => {
+                if parts.len() != 2 {
+                    println!("Usage: group <name>");
+                    continue;
+                }
+                let name = parts[1];
+
+                let Some(sel) = rt.show.groups.get(name) else {
+                    println!("Unknown group '{name}'");
+                    continue;
+                };
+
+                rt.programmer.selected = sel.clone();
+                println!("Selected group '{name}'");
             }
 
             _ => println!("Unknown command. Type 'help'."),

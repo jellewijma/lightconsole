@@ -1,6 +1,7 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -32,6 +33,9 @@ pub struct Show {
 
     #[serde(default)]
     pub cue_lists: BTreeMap<String, CueList>,
+
+    #[serde(default)]
+    pub groups: BTreeMap<String, BTreeSet<u32>>,
 }
 
 impl Show {
@@ -43,6 +47,7 @@ impl Show {
             name: name.into(),
             patch: Patch::default(),
             palettes: BTreeMap::new(),
+            groups: BTreeMap::new(),
             cue_lists,
         }
     }
