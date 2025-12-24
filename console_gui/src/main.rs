@@ -177,6 +177,122 @@ enum DragState {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EncoderBank {
+    Color,     // R G B
+    Intensity, // I (single)
+}
+
+impl Default for EncoderBank {
+    fn default() -> Self {
+        EncoderBank::Color
+    }
+}
+
+#[derive(Debug, Default)]
+struct ProgrammerUi {
+    // command console
+    log: Vec<String>,
+    line: String,
+
+    // encoder bank
+    bank: EncoderBank,
+    r: u8,
+    g: u8,
+    b: u8,
+    intensity: u8,
+}
+
+impl ProgrammerUi {
+    fn push_digit(&mut self, d: char) {
+        self.line.push(d);
+    }
+
+    fn push_dot(&mut self) {
+        self.line.push('.');
+    }
+
+    fn push_token(&mut self, tok: &str) {
+        if !self.line.is_empty() && !self.line.ends_with(' ') {
+            self.line.push(' ');
+        }
+        self.line.push_str(tok);
+        self.line.push(' ');
+    }
+
+    fn backspace(&mut self) {
+        // trim trailing spaces first (feels nicer)
+        while self.line.ends_with(' ') {
+            self.line.pop();
+        }
+        self.line.pop();
+    }
+
+    fn clear_line(&mut self) {
+        self.line.clear();
+    }
+
+    fn submit(&mut self) {
+        let cmd = self.line.trim().to_string();
+        if !cmd.is_empty() {
+            self.log.push(format!("> {}", cmd));
+        }
+        self.line.clear();
+    }
+}
+
+/// Minimal rotary knob (drag up/down to change).
+fn knob_u8(ui: &mut egui::Ui, id: egui::Id, value: &mut u8, enabled: bool) {
+    let size = egui::vec2(56.0, 56.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::drag());
+
+    let mut v = *value as f32;
+
+    if enabled && resp.dragged() {
+        let dy = resp.drag_delta().y;
+        // drag up = increase
+        v += (-dy) * 0.6;
+        v = v.clamp(0.0, 255.0);
+        *value = v.round() as u8;
+    }
+
+    let painter = ui.painter();
+    let center = rect.center();
+    let r = 24.0;
+
+    let bg = if enabled {
+        egui::Color32::from_rgb(40, 40, 44)
+    } else {
+        egui::Color32::from_rgb(28, 28, 30)
+    };
+    painter.circle_filled(center, r, bg);
+    painter.circle_stroke(
+        center,
+        r,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 90, 95)),
+    );
+
+    // indicator line: map 0..255 to -135..+135 degrees
+    let t = (*value as f32) / 255.0;
+    let ang = (-135.0 + 270.0 * t).to_radians();
+    let end = egui::pos2(
+        center.x + ang.cos() * (r - 6.0),
+        center.y + ang.sin() * (r - 6.0),
+    );
+    painter.line_segment(
+        [center, end],
+        egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 220, 220)),
+    );
+
+    // tooltip
+    if resp.hovered() {
+        resp.on_hover_text(format!("{}", *value));
+    }
+
+    // keep id "used" (prevents warnings if you later expand)
+    let _ = id;
+}
+
 struct GridApp {
     show_path: PathBuf,
     layout_path: PathBuf,
@@ -190,6 +306,8 @@ struct GridApp {
     next_cue: u32,
     next_group: u32,
     next_palette: u32,
+
+    programmer_ui: ProgrammerUi,
 }
 
 impl GridApp {
@@ -209,6 +327,10 @@ impl GridApp {
             next_cue: 1,
             next_group: 1,
             next_palette: 1,
+            programmer_ui: ProgrammerUi {
+                bank: EncoderBank::Color,
+                ..Default::default()
+            },
         }
     }
 
@@ -307,6 +429,243 @@ impl eframe::App for GridApp {
                 }
             });
         });
+
+        const PROGRAMMER_W: f32 = 560.0; // tweak to taste
+
+        egui::SidePanel::right("programmer_panel")
+            .resizable(false)
+            .exact_width(PROGRAMMER_W)
+            .show(ctx, |ui| {
+                ui.heading("Programmer");
+
+                // ----- Command console -----
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.set_min_height(140.0);
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for line in &self.programmer_ui.log {
+                                ui.label(line);
+                            }
+                        });
+                });
+
+                // command entry line
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.programmer_ui.line)
+                            .hint_text("type or use keypad…")
+                            .desired_width(f32::INFINITY),
+                    );
+
+                    let enter_pressed =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+
+                    if ui.button("Enter").clicked() || enter_pressed {
+                        self.programmer_ui.submit();
+                    }
+                });
+
+                ui.separator();
+
+                // ----- Encoder bank -----
+                ui.horizontal(|ui| {
+                    ui.label("Encoders:");
+                    if ui
+                        .selectable_label(self.programmer_ui.bank == EncoderBank::Color, "Color")
+                        .clicked()
+                    {
+                        self.programmer_ui.bank = EncoderBank::Color;
+                    }
+                    if ui
+                        .selectable_label(
+                            self.programmer_ui.bank == EncoderBank::Intensity,
+                            "Intensity",
+                        )
+                        .clicked()
+                    {
+                        self.programmer_ui.bank = EncoderBank::Intensity;
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    let bank = self.programmer_ui.bank;
+
+                    ui.vertical_centered(|ui| {
+                        let v = match bank {
+                            EncoderBank::Color => self.programmer_ui.r,
+                            _ => self.programmer_ui.intensity,
+                        };
+                        ui.label(format!("{v}"));
+                        knob_u8(
+                            ui,
+                            ui.id().with("knob1"),
+                            match bank {
+                                EncoderBank::Color => &mut self.programmer_ui.r,
+                                EncoderBank::Intensity => &mut self.programmer_ui.intensity,
+                            },
+                            true,
+                        );
+                        ui.label(match bank {
+                            EncoderBank::Color => "R",
+                            EncoderBank::Intensity => "I",
+                        });
+                    });
+
+                    ui.add_space(8.0);
+
+                    ui.vertical_centered(|ui| {
+                        let enabled = bank == EncoderBank::Color;
+                        ui.label(format!("{}", self.programmer_ui.g));
+                        knob_u8(
+                            ui,
+                            ui.id().with("knob2"),
+                            &mut self.programmer_ui.g,
+                            enabled,
+                        );
+                        ui.label("G");
+                    });
+
+                    ui.add_space(8.0);
+
+                    ui.vertical_centered(|ui| {
+                        let enabled = bank == EncoderBank::Color;
+                        ui.label(format!("{}", self.programmer_ui.b));
+                        knob_u8(
+                            ui,
+                            ui.id().with("knob3"),
+                            &mut self.programmer_ui.b,
+                            enabled,
+                        );
+                        ui.label("B");
+                    });
+                });
+
+                ui.separator();
+
+                // ----- Keypad + shortcuts -----
+                ui.horizontal(|ui| {
+                    // Keypad (4x5 with Enter spanning 2 columns)
+                    let key = egui::vec2(66.0, 44.0);
+                    let spacing_x = ui.spacing().item_spacing.x;
+                    let enter_w = key.x * 2.0 + spacing_x;
+
+                    ui.vertical(|ui| {
+                        // Row 1: <- / - +
+                        ui.horizontal(|ui| {
+                            if ui.add_sized(key, egui::Button::new("←")).clicked() {
+                                self.programmer_ui.backspace();
+                            }
+                            if ui.add_sized(key, egui::Button::new("/")).clicked() {
+                                self.programmer_ui.push_token("/");
+                            }
+                            if ui.add_sized(key, egui::Button::new("-")).clicked() {
+                                self.programmer_ui.push_token("-");
+                            }
+                            if ui.add_sized(key, egui::Button::new("+")).clicked() {
+                                self.programmer_ui.push_token("+");
+                            }
+                        });
+                        // Row 2: 7 8 9 thru
+                        ui.horizontal(|ui| {
+                            if ui.add_sized(key, egui::Button::new("7")).clicked() {
+                                self.programmer_ui.push_digit('7');
+                            }
+                            if ui.add_sized(key, egui::Button::new("8")).clicked() {
+                                self.programmer_ui.push_digit('8');
+                            }
+                            if ui.add_sized(key, egui::Button::new("9")).clicked() {
+                                self.programmer_ui.push_digit('9');
+                            }
+                            if ui.add_sized(key, egui::Button::new("thru")).clicked() {
+                                self.programmer_ui.push_token("thru");
+                            }
+                        });
+                        // Row 3: 4 5 6 full
+                        ui.horizontal(|ui| {
+                            if ui.add_sized(key, egui::Button::new("4")).clicked() {
+                                self.programmer_ui.push_digit('4');
+                            }
+                            if ui.add_sized(key, egui::Button::new("5")).clicked() {
+                                self.programmer_ui.push_digit('5');
+                            }
+                            if ui.add_sized(key, egui::Button::new("6")).clicked() {
+                                self.programmer_ui.push_digit('6');
+                            }
+                            if ui.add_sized(key, egui::Button::new("full")).clicked() {
+                                self.programmer_ui.push_token("full");
+                            }
+                        });
+                        // Row 4: 1 2 3 @
+                        ui.horizontal(|ui| {
+                            if ui.add_sized(key, egui::Button::new("1")).clicked() {
+                                self.programmer_ui.push_digit('1');
+                            }
+                            if ui.add_sized(key, egui::Button::new("2")).clicked() {
+                                self.programmer_ui.push_digit('2');
+                            }
+                            if ui.add_sized(key, egui::Button::new("3")).clicked() {
+                                self.programmer_ui.push_digit('3');
+                            }
+                            if ui.add_sized(key, egui::Button::new("@")).clicked() {
+                                self.programmer_ui.push_token("@");
+                            }
+                        });
+                        // Row 5: 0 . Enter (Enter spans 2 columns)
+                        ui.horizontal(|ui| {
+                            if ui.add_sized(key, egui::Button::new("0")).clicked() {
+                                self.programmer_ui.push_digit('0');
+                            }
+                            if ui.add_sized(key, egui::Button::new(".")).clicked() {
+                                self.programmer_ui.push_dot();
+                            }
+                            if ui
+                                .add_sized(egui::vec2(enter_w, key.y), egui::Button::new("Enter"))
+                                .clicked()
+                            {
+                                self.programmer_ui.submit();
+                            }
+                        });
+                    });
+
+                    ui.separator();
+
+                    // Shortcuts column
+                    ui.vertical(|ui| {
+                        let b = egui::vec2(120.0, 40.0);
+
+                        if ui.add_sized(b, egui::Button::new("Record")).clicked() {
+                            self.programmer_ui.push_token("record");
+                        }
+                        if ui.add_sized(b, egui::Button::new("Update")).clicked() {
+                            self.programmer_ui.push_token("update");
+                        }
+                        if ui.add_sized(b, egui::Button::new("Delete")).clicked() {
+                            self.programmer_ui.push_token("delete");
+                        }
+
+                        ui.separator();
+
+                        if ui.add_sized(b, egui::Button::new("Color")).clicked() {
+                            self.programmer_ui.bank = EncoderBank::Color;
+                            self.programmer_ui.push_token("color");
+                        }
+                        if ui.add_sized(b, egui::Button::new("Intensity")).clicked() {
+                            self.programmer_ui.bank = EncoderBank::Intensity;
+                            self.programmer_ui.push_token("intensity");
+                        }
+
+                        ui.separator();
+
+                        if ui.add_sized(b, egui::Button::new("Clear Line")).clicked() {
+                            self.programmer_ui.clear_line();
+                        }
+                        if ui.add_sized(b, egui::Button::new("Clear Log")).clicked() {
+                            self.programmer_ui.log.clear();
+                        }
+                    });
+                });
+            });
 
         // Main canvas
         egui::CentralPanel::default().show(ctx, |ui| {
