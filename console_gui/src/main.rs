@@ -1,5 +1,6 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 const GRID_COLS: i32 = 8;
@@ -68,7 +69,34 @@ impl ContainerKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum CellItem {
-    Placeholder { label: String },
+    Cue {
+        number: u32,
+        label: String,
+        fixtures: Vec<u32>,
+        intensity: u8,
+        r: u8,
+        g: u8,
+        b: u8,
+    },
+    Group {
+        name: String,
+        fixtures: Vec<u32>,
+    },
+    Palette {
+        name: String,
+        intensity: u8,
+        r: u8,
+        g: u8,
+        b: u8,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct PendingRecord {
+    container_id: u32,
+    cx: i32,
+    cy: i32,
+    kind: ContainerKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,9 +229,125 @@ struct ProgrammerUi {
     g: u8,
     b: u8,
     intensity: u8,
+    selected: BTreeSet<u32>,
 }
 
 impl ProgrammerUi {
+    fn out_line(&self) -> String {
+        let sel: Vec<u32> = self.selected.iter().copied().collect();
+        format!(
+            "OUT: sel={:?} | I={} | RGB=({}, {}, {}) | bank={:?}",
+            sel, self.intensity, self.r, self.g, self.b, self.bank
+        )
+    }
+
+    fn exec_command(&mut self, cmd: &str) {
+        let toks: Vec<&str> = cmd.split_whitespace().collect();
+        if toks.is_empty() {
+            self.log.push(self.out_line());
+            return;
+        }
+
+        let head = toks[0].to_ascii_lowercase();
+
+        match head.as_str() {
+            "out" => {
+                self.log.push(self.out_line());
+            }
+
+            "r" | "g" | "b" => {
+                if toks.len() >= 2 {
+                    if let Ok(v) = toks[1].parse::<i32>() {
+                        let v = v.clamp(0, 255) as u8;
+                        match head.as_str() {
+                            "r" => self.r = v,
+                            "g" => self.g = v,
+                            "b" => self.b = v,
+                            _ => {}
+                        }
+                    }
+                }
+                self.log.push(self.out_line());
+            }
+
+            "rgb" => {
+                if toks.len() >= 4 {
+                    let pr = toks[1].parse::<i32>().ok();
+                    let pg = toks[2].parse::<i32>().ok();
+                    let pb = toks[3].parse::<i32>().ok();
+                    if let (Some(r), Some(g), Some(b)) = (pr, pg, pb) {
+                        self.r = r.clamp(0, 255) as u8;
+                        self.g = g.clamp(0, 255) as u8;
+                        self.b = b.clamp(0, 255) as u8;
+                    }
+                }
+                self.log.push(self.out_line());
+            }
+
+            "at" => {
+                if toks.len() >= 2 {
+                    if let Ok(v) = toks[1].parse::<i32>() {
+                        // support 0..100 as percent
+                        if v <= 100 {
+                            self.intensity = ((v.clamp(0, 100) as u32) * 255 / 100) as u8;
+                        } else {
+                            self.intensity = v.clamp(0, 255) as u8;
+                        }
+                    }
+                }
+                self.log.push(self.out_line());
+            }
+
+            "full" => {
+                self.intensity = 255;
+                self.log.push(self.out_line());
+            }
+
+            "clearvals" => {
+                self.r = 0;
+                self.g = 0;
+                self.b = 0;
+                self.intensity = 0;
+                self.log.push(self.out_line());
+            }
+
+            "clearprog" => {
+                self.selected.clear();
+                self.r = 0;
+                self.g = 0;
+                self.b = 0;
+                self.intensity = 0;
+                self.log.push(self.out_line());
+            }
+
+            "select" => {
+                // minimal: "select 1 thru 4" OR "select 1 2 3"
+                self.selected.clear();
+
+                if toks.len() >= 4 && toks[2].eq_ignore_ascii_case("thru") {
+                    if let (Ok(a), Ok(b)) = (toks[1].parse::<u32>(), toks[3].parse::<u32>()) {
+                        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                        for n in lo..=hi {
+                            self.selected.insert(n);
+                        }
+                    }
+                } else {
+                    for t in toks.iter().skip(1) {
+                        if let Ok(n) = t.parse::<u32>() {
+                            self.selected.insert(n);
+                        }
+                    }
+                }
+
+                self.log.push(self.out_line());
+            }
+
+            _ => {
+                self.log.push(format!("Unknown cmd: {}", cmd));
+            }
+        }
+    }
+
     fn push_digit(&mut self, d: char) {
         self.line.push(d);
     }
@@ -232,12 +376,14 @@ impl ProgrammerUi {
         self.line.clear();
     }
 
-    fn submit(&mut self) {
+    fn submit(&mut self) -> Option<String> {
         let cmd = self.line.trim().to_string();
-        if !cmd.is_empty() {
-            self.log.push(format!("> {}", cmd));
-        }
         self.line.clear();
+        if cmd.is_empty() {
+            return None;
+        }
+        self.log.push(format!("> {}", cmd));
+        Some(cmd)
     }
 }
 
@@ -308,6 +454,9 @@ struct GridApp {
     next_palette: u32,
 
     programmer_ui: ProgrammerUi,
+    record_armed: bool,
+    pending_record: Option<PendingRecord>,
+    record_name: String,
 }
 
 impl GridApp {
@@ -331,6 +480,9 @@ impl GridApp {
                 bank: EncoderBank::Color,
                 ..Default::default()
             },
+            record_armed: false,
+            pending_record: None,
+            record_name: String::new(),
         }
     }
 
@@ -462,7 +614,12 @@ impl eframe::App for GridApp {
                         resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
                     if ui.button("Enter").clicked() || enter_pressed {
-                        self.programmer_ui.submit();
+                        if let Some(cmd) = self.programmer_ui.submit() {
+                            self.programmer_ui.exec_command(&cmd);
+                        } else {
+                            // empty line: still do OUT
+                            self.programmer_ui.exec_command("");
+                        }
                     }
                 });
 
@@ -623,7 +780,20 @@ impl eframe::App for GridApp {
                                 .add_sized(egui::vec2(enter_w, key.y), egui::Button::new("Enter"))
                                 .clicked()
                             {
-                                self.programmer_ui.submit();
+                                if ui
+                                    .add_sized(
+                                        egui::vec2(enter_w, key.y),
+                                        egui::Button::new("Enter"),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some(cmd) = self.programmer_ui.submit() {
+                                        self.programmer_ui.exec_command(&cmd);
+                                    } else {
+                                        // empty line -> still show OUT
+                                        self.programmer_ui.exec_command("");
+                                    }
+                                }
                             }
                         });
                     });
@@ -635,7 +805,10 @@ impl eframe::App for GridApp {
                         let b = egui::vec2(120.0, 40.0);
 
                         if ui.add_sized(b, egui::Button::new("Record")).clicked() {
-                            self.programmer_ui.push_token("record");
+                            self.record_armed = true;
+                            self.programmer_ui
+                                .log
+                                .push("Record armed: click a grid cell".to_string());
                         }
                         if ui.add_sized(b, egui::Button::new("Update")).clicked() {
                             self.programmer_ui.push_token("update");
@@ -775,8 +948,8 @@ impl eframe::App for GridApp {
                                 self.selected_id = Some(id);
                                 self.selected_cell = Some((id, cx, cy));
 
-                                // header cell (0,0) -> move only
                                 if cx == 0 && cy == 0 {
+                                    // header cell -> move only
                                     let Some(c) =
                                         self.layout.containers.iter().find(|c| c.id == id)
                                     else {
@@ -788,46 +961,20 @@ impl eframe::App for GridApp {
                                         id,
                                         grab_offset_px: grab_offset,
                                     };
-                                } else {
-                                    // body cell -> place placeholder if empty
-                                    self.drag = DragState::None;
-
-                                    if let Some(idx) =
-                                        self.layout.containers.iter().position(|c| c.id == id)
-                                    {
-                                        let c = &mut self.layout.containers[idx];
-                                        c.ensure_cells_len();
-                                        if c.get_cell(cx, cy).is_none() {
-                                            let label = match c.kind {
-                                                ContainerKind::Cues => {
-                                                    let s = format!("Cue {}", self.next_cue);
-                                                    self.next_cue += 1;
-                                                    s
-                                                }
-                                                ContainerKind::Groups => {
-                                                    let s = format!("Grp {}", self.next_group);
-                                                    self.next_group += 1;
-                                                    s
-                                                }
-                                                ContainerKind::Palettes => {
-                                                    let s = format!("Pal {}", self.next_palette);
-                                                    self.next_palette += 1;
-                                                    s
-                                                }
-                                            };
-                                            c.set_cell(
-                                                cx,
-                                                cy,
-                                                Some(CellItem::Placeholder { label }),
-                                            );
-                                            self.dirty = true;
-                                        }
-                                    }
                                 }
                             } else {
+                                // clicked empty space
                                 self.selected_id = None;
                                 self.selected_cell = None;
                                 self.drag = DragState::None;
+
+                                if self.record_armed {
+                                    // don't disarm; user still needs to click a cell
+                                    self.programmer_ui.log.push(
+                                        "Record armed: click a BODY cell in a container."
+                                            .to_string(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -935,6 +1082,109 @@ impl eframe::App for GridApp {
                     }
                 });
         });
+
+        if let Some(p) = self.pending_record.clone() {
+            egui::Window::new("Record into cell")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(format!(
+                        "Recording {} to cell ({}, {})",
+                        p.kind.title(),
+                        p.cx,
+                        p.cy
+                    ));
+                    ui.add(egui::TextEdit::singleline(&mut self.record_name).hint_text("name..."));
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.pending_record = None;
+                        }
+
+                        if ui.button("OK").clicked() {
+                            let name = self.record_name.trim().to_string();
+                            if name.is_empty() {
+                                self.programmer_ui
+                                    .log
+                                    .push("Name cannot be empty.".to_string());
+                                return;
+                            }
+
+                            // write into the cell
+                            if let Some(cidx) = self
+                                .layout
+                                .containers
+                                .iter()
+                                .position(|c| c.id == p.container_id)
+                            {
+                                let c = &mut self.layout.containers[cidx];
+                                c.ensure_cells_len();
+
+                                match p.kind {
+                                    ContainerKind::Groups => {
+                                        let fixtures: Vec<u32> =
+                                            self.programmer_ui.selected.iter().copied().collect();
+                                        c.set_cell(
+                                            p.cx,
+                                            p.cy,
+                                            Some(CellItem::Group {
+                                                name: name.clone(),
+                                                fixtures,
+                                            }),
+                                        );
+                                        self.programmer_ui
+                                            .log
+                                            .push(format!("Recorded Group '{name}'"));
+                                    }
+                                    ContainerKind::Palettes => {
+                                        c.set_cell(
+                                            p.cx,
+                                            p.cy,
+                                            Some(CellItem::Palette {
+                                                name: name.clone(),
+                                                intensity: self.programmer_ui.intensity,
+                                                r: self.programmer_ui.r,
+                                                g: self.programmer_ui.g,
+                                                b: self.programmer_ui.b,
+                                            }),
+                                        );
+                                        self.programmer_ui
+                                            .log
+                                            .push(format!("Recorded Palette '{name}'"));
+                                    }
+                                    ContainerKind::Cues => {
+                                        let fixtures: Vec<u32> =
+                                            self.programmer_ui.selected.iter().copied().collect();
+                                        let number = self.next_cue;
+                                        self.next_cue += 1;
+
+                                        c.set_cell(
+                                            p.cx,
+                                            p.cy,
+                                            Some(CellItem::Cue {
+                                                number,
+                                                label: name.clone(),
+                                                fixtures,
+                                                intensity: self.programmer_ui.intensity,
+                                                r: self.programmer_ui.r,
+                                                g: self.programmer_ui.g,
+                                                b: self.programmer_ui.b,
+                                            }),
+                                        );
+                                        self.programmer_ui
+                                            .log
+                                            .push(format!("Recorded Cue {number} '{name}'"));
+                                    }
+                                }
+
+                                self.dirty = true;
+                            }
+
+                            self.pending_record = None;
+                        }
+                    });
+                });
+        }
 
         // Optional: autosave when closing later. For now, manual save is enough.
     }
@@ -1050,7 +1300,13 @@ fn draw_container(
                 };
                 painter.rect_filled(cell, 0.0, bg);
 
-                if let Some(CellItem::Placeholder { label }) = c.get_cell(x, y) {
+                if let Some(item) = c.get_cell(x, y) {
+                    let label = match item {
+                        CellItem::Cue { number, label, .. } => format!("{number} {label}"),
+                        CellItem::Group { name, .. } => name.clone(),
+                        CellItem::Palette { name, .. } => name.clone(),
+                    };
+
                     painter.text(
                         cell.center(),
                         egui::Align2::CENTER_CENTER,
