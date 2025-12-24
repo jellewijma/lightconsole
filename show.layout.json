@@ -1,0 +1,25 @@
+{
+  "cols": 8,
+  "rows": 5,
+  "next_id": 3,
+  "containers": [
+    {
+      "id": 1,
+      "kind": "Cues",
+      "title": "Cues",
+      "x": 0,
+      "y": 0,
+      "w": 6,
+      "h": 1
+    },
+    {
+      "id": 2,
+      "kind": "Palettes",
+      "title": "Palettes",
+      "x": 6,
+      "y": 0,
+      "w": 2,
+      "h": 3
+    }
+  ]
+}
