@@ -356,11 +356,6 @@ impl eframe::App for GridApp {
                     let pointer = ctx.input(|i| i.pointer.clone());
                     let pointer_pos = pointer.interact_pos();
 
-                    // Convenience: get container rects in screen space
-                    let mut hit_handle: Option<u32> = None;
-
-                    let mut hit_cell: Option<(u32, i32, i32)> = None;
-
                     if let Some(pos) = pointer_pos {
                         for c in self.layout.containers.iter().rev() {
                             let r = container_rect_px(origin, c);
@@ -370,7 +365,6 @@ impl eframe::App for GridApp {
                             let cx = ((pos.x - r.min.x) / CELL_PX).floor() as i32;
                             let cy = ((pos.y - r.min.y) / CELL_PX).floor() as i32;
                             if cx >= 0 && cy >= 0 && cx < c.w && cy < c.h {
-                                hit_cell = Some((c.id, cx, cy));
                                 break;
                             }
                         }
@@ -611,10 +605,6 @@ fn container_rect_px(origin: egui::Pos2, c: &Container) -> egui::Rect {
     egui::Rect::from_min_max(min, max)
 }
 
-fn header_cell_rect_px(container: egui::Rect) -> egui::Rect {
-    egui::Rect::from_min_size(container.min, egui::Vec2::new(CELL_PX, CELL_PX))
-}
-
 fn handle_center_px(container: egui::Rect) -> egui::Pos2 {
     egui::pos2(container.max.x - 10.0, container.max.y - 10.0)
 }
@@ -661,7 +651,6 @@ fn draw_container(
     selected_cell: Option<(i32, i32)>,
 ) {
     let r = container_rect_px(origin, c);
-    let header_cell = header_cell_rect_px(r);
 
     let line = egui::Stroke::new(
         1.0,
