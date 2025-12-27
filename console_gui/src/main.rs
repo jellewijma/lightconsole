@@ -1,3 +1,5 @@
+use console_core::progcmd::{ApplyStatus, try_apply_programmer_line};
+use console_core::{Runtime, Show};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -307,6 +309,7 @@ struct GridApp {
     next_group: u32,
     next_palette: u32,
 
+    rt: Runtime,
     programmer_ui: ProgrammerUi,
 }
 
@@ -316,6 +319,13 @@ impl GridApp {
         for c in &mut layout.containers {
             c.ensure_cells_len();
         }
+
+        let show = Show::load_json_file(&show_path).unwrap_or_else(|e| {
+            eprintln!("Failed to load show {:?}: {e}", show_path);
+            Show::new("New Show")
+        });
+
+        let rt = Runtime::new(show);
         Self {
             show_path,
             layout_path,
@@ -327,11 +337,40 @@ impl GridApp {
             next_cue: 1,
             next_group: 1,
             next_palette: 1,
+            rt,
             programmer_ui: ProgrammerUi {
                 bank: EncoderBank::Color,
                 ..Default::default()
             },
         }
+    }
+
+    fn apply_programmer_preview(&mut self) {
+        match try_apply_programmer_line(&self.programmer_ui.line, &mut self.rt.programmer) {
+            ApplyStatus::Applied => {
+                // Optional: show some UI indicator
+            }
+            ApplyStatus::Incomplete => {
+                // Optional: show "..."
+            }
+            ApplyStatus::NotProgrammer => {
+                // Do nothing: let other GUI shortcuts/commands handle it later
+            }
+        }
+    }
+
+    fn submit_programmer_line(&mut self) {
+        let cmd = self.programmer_ui.line.trim().to_string();
+        if cmd.is_empty() {
+            return;
+        }
+
+        self.programmer_ui.log.push(format!("> {}", cmd));
+
+        // Final apply (in case someone pasted text and pressed enter fast)
+        let _ = try_apply_programmer_line(&cmd, &mut self.rt.programmer);
+
+        self.programmer_ui.line.clear();
     }
 
     fn save_layout(&mut self) {
@@ -450,19 +489,34 @@ impl eframe::App for GridApp {
                         });
                 });
 
+                // console output
+                ui.separator();
+                egui::CollapsingHeader::new("DMX Out (non-zero)")
+                    .default_open(true)
+                    .show(ui, |ui| match self.rt.render() {
+                        Ok(live) => {
+                            for (u, addr, val) in live.nonzero().into_iter().take(80) {
+                                ui.monospace(format!("U{}:{:03} = {}", u, addr, val));
+                            }
+                        }
+                        Err(e) => {
+                            ui.label(format!("render error: {e:?}"));
+                        }
+                    });
+
+                ui.separator();
+
                 // command entry line
                 ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut self.programmer_ui.line)
-                            .hint_text("type or use keypad…")
-                            .desired_width(f32::INFINITY),
-                    );
+                    let resp: egui::Response =
+                        ui.text_edit_singleline(&mut self.programmer_ui.line);
 
-                    let enter_pressed =
-                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if resp.changed() {
+                        self.apply_programmer_preview();
+                    }
 
-                    if ui.button("Enter").clicked() || enter_pressed {
-                        self.programmer_ui.submit();
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.submit_programmer_line();
                     }
                 });
 
@@ -555,75 +609,94 @@ impl eframe::App for GridApp {
                         ui.horizontal(|ui| {
                             if ui.add_sized(key, egui::Button::new("←")).clicked() {
                                 self.programmer_ui.backspace();
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("/")).clicked() {
                                 self.programmer_ui.push_token("/");
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("-")).clicked() {
                                 self.programmer_ui.push_token("-");
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("+")).clicked() {
                                 self.programmer_ui.push_token("+");
+                                self.apply_programmer_preview();
                             }
                         });
                         // Row 2: 7 8 9 thru
                         ui.horizontal(|ui| {
                             if ui.add_sized(key, egui::Button::new("7")).clicked() {
                                 self.programmer_ui.push_digit('7');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("8")).clicked() {
                                 self.programmer_ui.push_digit('8');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("9")).clicked() {
                                 self.programmer_ui.push_digit('9');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("thru")).clicked() {
                                 self.programmer_ui.push_token("thru");
+                                self.apply_programmer_preview();
                             }
                         });
                         // Row 3: 4 5 6 full
                         ui.horizontal(|ui| {
                             if ui.add_sized(key, egui::Button::new("4")).clicked() {
                                 self.programmer_ui.push_digit('4');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("5")).clicked() {
                                 self.programmer_ui.push_digit('5');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("6")).clicked() {
                                 self.programmer_ui.push_digit('6');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("full")).clicked() {
                                 self.programmer_ui.push_token("full");
+                                self.apply_programmer_preview();
                             }
                         });
                         // Row 4: 1 2 3 @
                         ui.horizontal(|ui| {
                             if ui.add_sized(key, egui::Button::new("1")).clicked() {
                                 self.programmer_ui.push_digit('1');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("2")).clicked() {
                                 self.programmer_ui.push_digit('2');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("3")).clicked() {
                                 self.programmer_ui.push_digit('3');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new("@")).clicked() {
                                 self.programmer_ui.push_token("@");
+                                self.apply_programmer_preview();
                             }
                         });
                         // Row 5: 0 . Enter (Enter spans 2 columns)
                         ui.horizontal(|ui| {
                             if ui.add_sized(key, egui::Button::new("0")).clicked() {
                                 self.programmer_ui.push_digit('0');
+                                self.apply_programmer_preview();
                             }
                             if ui.add_sized(key, egui::Button::new(".")).clicked() {
                                 self.programmer_ui.push_dot();
+                                self.apply_programmer_preview();
                             }
                             if ui
                                 .add_sized(egui::vec2(enter_w, key.y), egui::Button::new("Enter"))
                                 .clicked()
                             {
                                 self.programmer_ui.submit();
+                                self.apply_programmer_preview();
                             }
                         });
                     });

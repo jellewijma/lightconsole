@@ -304,6 +304,7 @@ name = "console_gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "console_core",
  "eframe",
  "serde",
  "serde_json",

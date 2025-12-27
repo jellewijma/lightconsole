@@ -112,7 +112,7 @@ pub fn try_apply_programmer_line(line: &str, p: &mut Programmer) -> ApplyStatus 
             let val = match words.get(i) {
                 Some(ProgWord::Full) => Some(100),
                 Some(ProgWord::Out) => Some(0),
-                Some(ProgWord::Percent(pct)) => Some(*pct),
+                Some(ProgWord::Num(n)) if *n <= 100 => Some(*n as u8),
                 _ => return ApplyStatus::Incomplete, // "101 @"
             };
 
@@ -152,5 +152,14 @@ mod tests {
         let mut p = Programmer::new();
         let st = try_apply_programmer_line("help", &mut p);
         assert_eq!(st, ApplyStatus::NotProgrammer);
+    }
+
+    #[test]
+    fn parses_at_50() {
+        let mut p = Programmer::new();
+        let st = try_apply_programmer_line("1 thru 2 @ 50", &mut p);
+        assert_eq!(st, ApplyStatus::Applied);
+        assert!(p.selected.contains(&1));
+        assert!(p.selected.contains(&2));
     }
 }
