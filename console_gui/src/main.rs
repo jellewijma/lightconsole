@@ -311,6 +311,7 @@ struct GridApp {
 
     rt: Runtime,
     programmer_ui: ProgrammerUi,
+    programmer_status: ApplyStatus, // optional but very helpful
 }
 
 impl GridApp {
@@ -338,6 +339,7 @@ impl GridApp {
             next_group: 1,
             next_palette: 1,
             rt,
+            programmer_status: ApplyStatus::NotProgrammer,
             programmer_ui: ProgrammerUi {
                 bank: EncoderBank::Color,
                 ..Default::default()
@@ -503,6 +505,15 @@ impl eframe::App for GridApp {
                             ui.label(format!("render error: {e:?}"));
                         }
                     });
+
+                ui.label(format!("Selected: {:?}", self.rt.programmer.selected));
+                ui.label(format!("Intensity: {:?}", self.rt.programmer.intensity));
+
+                ui.label(match self.programmer_status {
+                    ApplyStatus::Applied => "OK",
+                    ApplyStatus::Incomplete => "...",
+                    ApplyStatus::NotProgrammer => "",
+                });
 
                 ui.separator();
 
