@@ -143,6 +143,21 @@ fn repl(show_path: &str) -> anyhow::Result<()> {
             }
         }
 
+        // before splitting into "cmd words"
+        match console_core::progcmd::try_apply_programmer_line(line, &mut rt.programmer) {
+            console_core::progcmd::ApplyStatus::Applied => {
+                println!("(programmer) selection+values applied");
+                continue;
+            }
+            console_core::progcmd::ApplyStatus::Incomplete => {
+                println!("(programmer) incomplete input…");
+                continue;
+            }
+            console_core::progcmd::ApplyStatus::NotProgrammer => {
+                // fall through to existing commands (help, list, record, etc.)
+            }
+        }
+
         match cmd.as_str() {
             "help" => {
                 println!(

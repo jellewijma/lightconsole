@@ -9,6 +9,8 @@ pub mod cues;
 pub mod engine;
 pub mod palette;
 pub mod playback;
+pub mod progcmd;
+
 mod runtime;
 
 pub use cues::{Cue, CueList, FixtureValues};
