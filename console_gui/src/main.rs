@@ -710,7 +710,7 @@ impl eframe::App for GridApp {
                     ui.vertical(|ui| {
                         // Row 1: <- / - +
                         ui.horizontal(|ui| {
-                            if ui.add_sized(key, egui::Button::new("←")).clicked() {
+                            if ui.add_sized(key, egui::Button::new("<-")).clicked() {
                                 self.programmer_ui.backspace();
                             }
                             if ui.add_sized(key, egui::Button::new("/")).clicked() {

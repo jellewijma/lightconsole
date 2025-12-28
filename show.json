@@ -31,192 +31,87 @@
             "kind": "ColorB"
           }
         ]
+      },
+      "SHEHDS 7x18W LED Par": {
+        "type_id": "SHEHDS 7x18W LED Par",
+        "manufacturer": "SHEHDS",
+        "model": "7x18W LED Par",
+        "channels": [
+          {
+            "name": "Red",
+            "kind": "ColorR"
+          },
+          {
+            "name": "Green",
+            "kind": "ColorG"
+          },
+          {
+            "name": "Blue",
+            "kind": "ColorB"
+          },
+          {
+            "name": "White",
+            "kind": "ColorW"
+          },
+          {
+            "name": "Amber",
+            "kind": "ColorA"
+          },
+          {
+            "name": "UV",
+            "kind": "ColorUV"
+          },
+          {
+            "name": "Intensity",
+            "kind": "Intensity"
+          },
+          {
+            "name": "Strobe",
+            "kind": "Strobe"
+          },
+          {
+            "name": "Function",
+            "kind": "Function"
+          },
+          {
+            "name": "Speed",
+            "kind": "Speed"
+          }
+        ]
       }
     },
     "fixtures": {
       "1": {
-        "fixture_id": 1,
-        "name": "PAR 1",
-        "fixture_type": "rgb_par_3ch",
+        "fixture_id": 101,
+        "name": "SHEHDS 7x18W LED Par",
+        "fixture_type": "SHEHDS 7x18W LED Par",
         "universe": 1,
         "address": 1
       },
       "2": {
-        "fixture_id": 2,
-        "name": "PAR 2",
-        "fixture_type": "rgb_par_3ch",
+        "fixture_id": 102,
+        "name": "SHEHDS 7x18W LED Par",
+        "fixture_type": "SHEHDS 7x18W LED Par",
         "universe": 1,
-        "address": 4
+        "address": 11
       },
-      "10": {
-        "fixture_id": 10,
-        "name": "DIM 1",
-        "fixture_type": "dimmer_1ch",
+      "3": {
+        "fixture_id": 103,
+        "name": "SHEHDS 7x18W LED Par",
+        "fixture_type": "SHEHDS 7x18W LED Par",
         "universe": 1,
-        "address": 100
+        "address": 21
+      },
+      "4": {
+        "fixture_id": 104,
+        "name": "SHEHDS 7x18W LED Par",
+        "fixture_type": "SHEHDS 7x18W LED Par",
+        "universe": 1,
+        "address": 31
       }
     }
   },
-  "palettes": {
-    "blue": {
-      "kind": "Color",
-      "values": {
-        "intensity": null,
-        "r": 0,
-        "g": 0,
-        "b": 255
-      }
-    },
-    "full": {
-      "kind": "Intensity",
-      "values": {
-        "intensity": 255,
-        "r": null,
-        "g": null,
-        "b": null
-      }
-    },
-    "low": {
-      "kind": "Intensity",
-      "values": {
-        "intensity": 76,
-        "r": null,
-        "g": null,
-        "b": null
-      }
-    }
-  },
-  "cue_lists": {
-    "main": {
-      "cues": {
-        "1": {
-          "number": 1,
-          "label": "RedOnly",
-          "block": false,
-          "fade_ms": 0,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": 255,
-              "g": null,
-              "b": null
-            }
-          }
-        },
-        "2": {
-          "number": 2,
-          "label": "BlueAdd",
-          "block": false,
-          "fade_ms": 0,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": null,
-              "g": null,
-              "b": 255
-            }
-          }
-        },
-        "11": {
-          "number": 11,
-          "label": "RedTrack",
-          "block": false,
-          "fade_ms": 0,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": 255,
-              "g": null,
-              "b": null
-            }
-          }
-        },
-        "12": {
-          "number": 12,
-          "label": "BlueAdd",
-          "block": true,
-          "fade_ms": 0,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": null,
-              "g": null,
-              "b": 255
-            }
-          }
-        },
-        "31": {
-          "number": 31,
-          "label": "RedFade",
-          "block": false,
-          "fade_ms": 2000,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": 255,
-              "g": null,
-              "b": null
-            }
-          }
-        },
-        "32": {
-          "number": 32,
-          "label": "BlueAddFade",
-          "block": false,
-          "fade_ms": 2000,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": null,
-              "g": null,
-              "b": 255
-            }
-          }
-        },
-        "52": {
-          "number": 52,
-          "label": "PureBlue",
-          "block": false,
-          "fade_ms": 2000,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": 0,
-              "r": 0,
-              "g": 0,
-              "b": 255
-            }
-          }
-        },
-        "200": {
-          "number": 200,
-          "label": "list1",
-          "block": false,
-          "fade_ms": 1000,
-          "delay_ms": 0,
-          "changes": {
-            "1": {
-              "intensity": null,
-              "r": 255,
-              "g": 0,
-              "b": 0
-            },
-            "2": {
-              "intensity": null,
-              "r": 255,
-              "g": 0,
-              "b": 0
-            }
-          }
-        }
-      }
-    }
-  },
+  "palettes": {},
+  "cue_lists": {},
   "groups": {}
 }
